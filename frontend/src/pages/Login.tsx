@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { useNavigate, Link as RouterLink } from 'react-router-dom';
 import {
-  Container,
   Box,
+  Paper,
   Typography,
   TextField,
   Button,
@@ -19,94 +19,91 @@ export default function Login() {
     password: '',
   });
   const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({
-      ...prev,
-      [name]: value,
-    }));
+    setFormData({
+      ...formData,
+      [e.target.name]: e.target.value,
+    });
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    setLoading(true);
 
     try {
-      const success = await login(formData.username, formData.password);
-      if (success) {
-        navigate('/dashboard');
-      } else {
-        setError('Invalid username or password');
-      }
+      await login(formData.username, formData.password);
+      navigate('/dashboard');
     } catch (err) {
-      setError('An error occurred during login');
-    } finally {
-      setLoading(false);
+      setError('Invalid username or password');
     }
   };
 
   return (
-    <Container component="main" maxWidth="xs">
-      <Box
+    <Box
+      sx={{
+        height: '100vh',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        bgcolor: 'background.default',
+      }}
+    >
+      <Paper
+        elevation={3}
         sx={{
-          marginTop: 8,
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
+          p: 4,
+          width: '100%',
+          maxWidth: 400,
         }}
       >
-        <Typography component="h1" variant="h5">
-          Sign in
+        <Typography variant="h5" component="h1" gutterBottom align="center">
+          Family Expense Tracker
         </Typography>
-        {error && (
-          <Alert severity="error" sx={{ mt: 2, width: '100%' }}>
-            {error}
-          </Alert>
-        )}
-        <Box component="form" onSubmit={handleSubmit} sx={{ mt: 1 }}>
+        <Typography variant="h6" gutterBottom align="center">
+          Login
+        </Typography>
+        {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+        <form onSubmit={handleSubmit}>
           <TextField
-            margin="normal"
-            required
             fullWidth
-            id="username"
             label="Username"
             name="username"
-            autoComplete="username"
-            autoFocus
             value={formData.username}
             onChange={handleChange}
-          />
-          <TextField
             margin="normal"
             required
+          />
+          <TextField
             fullWidth
-            name="password"
             label="Password"
+            name="password"
             type="password"
-            id="password"
-            autoComplete="current-password"
             value={formData.password}
             onChange={handleChange}
+            margin="normal"
+            required
           />
           <Button
             type="submit"
             fullWidth
             variant="contained"
-            sx={{ mt: 3, mb: 2 }}
-            disabled={loading}
+            color="primary"
+            size="large"
+            sx={{ mt: 3 }}
           >
-            {loading ? 'Signing in...' : 'Sign In'}
+            Login
           </Button>
-          <Box sx={{ textAlign: 'center' }}>
-            <Link component={RouterLink} to="/register" variant="body2">
-              {"Don't have an account? Sign Up"}
+        </form>
+        <Box sx={{ mt: 2, textAlign: 'center' }}>
+          <Typography variant="body2">
+            Don't have an account?{' '}
+            <Link component={RouterLink} to="/register">
+              Register here
             </Link>
-          </Box>
+          </Typography>
         </Box>
-      </Box>
-    </Container>
+      </Paper>
+    </Box>
   );
 } 

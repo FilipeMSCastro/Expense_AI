@@ -1,7 +1,9 @@
 import pandas as pd
 from typing import List, Dict, Optional
 from datetime import datetime
-from ..schemas.schemas import ExpenseCreate
+from ..schemas import ExpenseCreate
+import csv
+from io import StringIO
 
 class CSVService:
     def process_csv(self, file_path: str) -> List[ExpenseCreate]:
@@ -70,4 +72,25 @@ class CSVService:
             return has_required
             
         except Exception:
-            return False 
+            return False
+
+    @staticmethod
+    def parse_csv(csv_content: str) -> list[ExpenseCreate]:
+        expenses = []
+        csv_file = StringIO(csv_content)
+        reader = csv.DictReader(csv_file)
+        
+        for row in reader:
+            try:
+                expense = ExpenseCreate(
+                    description=row.get('description', ''),
+                    amount=float(row.get('amount', 0)),
+                    date=datetime.strptime(row.get('date', ''), '%Y-%m-%d'),
+                    category_id=int(row.get('category_id', 0))
+                )
+                expenses.append(expense)
+            except (ValueError, TypeError) as e:
+                print(f"Error parsing row: {row}, Error: {e}")
+                continue
+        
+        return expenses 

@@ -5,12 +5,14 @@ from sqlalchemy.orm import Session
 from typing import List
 import os
 from datetime import timedelta
+import jwt
+from jose import JWTError
 
 from .core.config import settings
-from .core.security import create_access_token, verify_password
-from .db.database import get_db, engine
-from .models import models
-from .schemas import schemas
+from .core.security import create_access_token, verify_password, get_password_hash
+from .database import get_db, engine
+from . import models
+from . import schemas
 from .services.ocr_service import OCRService
 from .services.csv_service import CSVService
 
@@ -26,7 +28,7 @@ app = FastAPI(
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, replace with specific origins
+    allow_origins=["http://localhost:3000"],  # Frontend URL
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -99,6 +101,10 @@ def create_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(db_user)
     return db_user
+
+@app.get("/api/v1/users/me", response_model=schemas.User)
+async def get_current_user(current_user: models.User = Depends(get_current_user)):
+    return current_user
 
 # Expense endpoints
 @app.post(f"{settings.API_V1_STR}/expenses/", response_model=schemas.Expense)
@@ -205,4 +211,62 @@ async def import_csv(
         
         return created_expenses
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) 
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/v1/categories/", response_model=list[schemas.Category])
+async def get_categories(
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    categories = db.query(models.Category).filter(models.Category.user_id == current_user.id).all()
+    return categories
+
+@app.post("/api/v1/categories/", response_model=schemas.Category)
+async def create_category(
+    category: schemas.CategoryCreate,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    db_category = models.Category(**category.model_dump(), user_id=current_user.id)
+    db.add(db_category)
+    db.commit()
+    db.refresh(db_category)
+    return db_category
+
+@app.put("/api/v1/categories/{category_id}", response_model=schemas.Category)
+async def update_category(
+    category_id: int,
+    category: schemas.CategoryUpdate,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    db_category = db.query(models.Category).filter(
+        models.Category.id == category_id,
+        models.Category.user_id == current_user.id
+    ).first()
+    if not db_category:
+        raise HTTPException(status_code=404, detail="Category not found")
+    
+    for key, value in category.model_dump().items():
+        setattr(db_category, key, value)
+    
+    db.commit()
+    db.refresh(db_category)
+    return db_category
+
+@app.delete("/api/v1/categories/{category_id}")
+async def delete_category(
+    category_id: int,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    db_category = db.query(models.Category).filter(
+        models.Category.id == category_id,
+        models.Category.user_id == current_user.id
+    ).first()
+    if not db_category:
+        raise HTTPException(status_code=404, detail="Category not found")
+    
+    db.delete(db_category)
+    db.commit()
+    return {"message": "Category deleted successfully"} 

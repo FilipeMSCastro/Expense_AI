@@ -1,96 +1,146 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
 
+// Create axios instance with base URL
+const api = axios.create({
+  baseURL: 'http://localhost:8000',
+  headers: {
+    'Content-Type': 'application/json',
+  },
+});
+
 interface User {
   id: number;
-  email: string;
   username: string;
+  email: string;
 }
 
-interface AuthState {
+interface AuthContextType {
   user: User | null;
-  token: string | null;
   isAuthenticated: boolean;
+  isLoading: boolean;
+  login: (username: string, password: string) => Promise<void>;
+  register: (username: string, email: string, password: string) => Promise<void>;
+  logout: () => Promise<void>;
 }
 
-export function useAuth() {
-  const [authState, setAuthState] = useState<AuthState>({
-    user: null,
-    token: null,
-    isAuthenticated: false,
-  });
+export function useAuth(): AuthContextType {
+  const [user, setUser] = useState<User | null>(null);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    // Check for stored token on mount
+    // Check if user is logged in on mount
     const token = localStorage.getItem('token');
     if (token) {
-      // Validate token and get user info
-      validateToken(token);
+      api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+      fetchUser();
+    } else {
+      setIsLoading(false);
     }
   }, []);
 
-  const validateToken = async (token: string) => {
+  const fetchUser = async () => {
     try {
-      const response = await axios.get('/api/v1/users/me', {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      setAuthState({
-        user: response.data,
-        token,
-        isAuthenticated: true,
-      });
+      const response = await api.get('/api/v1/users/me');
+      setUser(response.data);
+      setIsAuthenticated(true);
     } catch (error) {
-      // Token is invalid, clear storage
       localStorage.removeItem('token');
-      setAuthState({
-        user: null,
-        token: null,
-        isAuthenticated: false,
-      });
+      delete api.defaults.headers.common['Authorization'];
+      setUser(null);
+      setIsAuthenticated(false);
+    } finally {
+      setIsLoading(false);
     }
   };
 
   const login = async (username: string, password: string) => {
+    setIsLoading(true);
+    const formData = new FormData();
+    formData.append('username', username);
+    formData.append('password', password);
+    
     try {
-      const response = await axios.post('/api/v1/token', {
-        username,
-        password,
+      const response = await api.post('/api/v1/token', formData, {
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
       });
+      
       const { access_token } = response.data;
       localStorage.setItem('token', access_token);
-      await validateToken(access_token);
-      return true;
+      api.defaults.headers.common['Authorization'] = `Bearer ${access_token}`;
+      
+      // Fetch the full user data and only set isAuthenticated after successful fetch
+      await fetchUser();
     } catch (error) {
-      console.error('Login failed:', error);
-      return false;
+      // If fetching user data fails, clear the token and throw error
+      localStorage.removeItem('token');
+      delete api.defaults.headers.common['Authorization'];
+      setUser(null);
+      setIsAuthenticated(false);
+      throw new Error('Failed to fetch user data');
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  const register = async (email: string, username: string, password: string) => {
+  const register = async (username: string, email: string, password: string) => {
+    setIsLoading(true);
     try {
-      await axios.post('/api/v1/users/', {
-        email,
+      const response = await api.post('/api/v1/users/', {
         username,
+        email,
         password,
       });
-      return true;
+      
+      // After successful registration, login to get the token
+      const formData = new FormData();
+      formData.append('username', username);
+      formData.append('password', password);
+      
+      const loginResponse = await api.post('/api/v1/token', formData, {
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+      });
+      
+      const { access_token } = loginResponse.data;
+      localStorage.setItem('token', access_token);
+      api.defaults.headers.common['Authorization'] = `Bearer ${access_token}`;
+      
+      // Fetch the full user data and only set isAuthenticated after successful fetch
+      try {
+        await fetchUser();
+      } catch (error) {
+        // If fetching user data fails, clear the token and throw error
+        localStorage.removeItem('token');
+        delete api.defaults.headers.common['Authorization'];
+        throw new Error('Failed to fetch user data');
+      }
     } catch (error) {
-      console.error('Registration failed:', error);
-      return false;
+      if (axios.isAxiosError(error)) {
+        const errorMessage = error.response?.data?.detail || 'Registration failed. Please try again.';
+        throw new Error(errorMessage);
+      }
+      throw error;
     }
   };
 
-  const logout = () => {
+  const logout = async () => {
+    setIsLoading(true);
     localStorage.removeItem('token');
-    setAuthState({
-      user: null,
-      token: null,
-      isAuthenticated: false,
-    });
+    delete api.defaults.headers.common['Authorization'];
+    setUser(null);
+    setIsAuthenticated(false);
+    setIsLoading(false);
   };
 
   return {
-    ...authState,
+    user,
+    isAuthenticated,
+    isLoading,
     login,
     register,
     logout,

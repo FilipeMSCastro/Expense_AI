@@ -3,16 +3,14 @@ import {
   Box,
   Button,
   Dialog,
-  DialogTitle,
-  DialogContent,
   DialogActions,
+  DialogContent,
+  DialogTitle,
   TextField,
   Typography,
-  IconButton,
-  Grid,
+  MenuItem,
 } from '@mui/material';
-import { DataGrid, GridColDef } from '@mui/x-data-grid';
-import { Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon } from '@mui/icons-material';
+import { DataGrid, GridColDef, GridRenderCellParams } from '@mui/x-data-grid';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
 import { format } from 'date-fns';
@@ -26,10 +24,15 @@ interface Expense {
   category_name: string;
 }
 
+interface Category {
+  id: number;
+  name: string;
+}
+
 export default function Expenses() {
   const [open, setOpen] = useState(false);
   const [selectedExpense, setSelectedExpense] = useState<Expense | null>(null);
-  const [formData, setFormData] = useState({
+  const [expenseData, setExpenseData] = useState({
     amount: '',
     description: '',
     date: format(new Date(), 'yyyy-MM-dd'),
@@ -39,7 +42,7 @@ export default function Expenses() {
   const queryClient = useQueryClient();
 
   // Fetch expenses
-  const { data: expenses, isLoading } = useQuery<Expense[]>({
+  const { data: expenses, isLoading: expensesLoading } = useQuery({
     queryKey: ['expenses'],
     queryFn: async () => {
       const response = await axios.get('/api/v1/expenses/');
@@ -48,7 +51,7 @@ export default function Expenses() {
   });
 
   // Fetch categories
-  const { data: categories } = useQuery({
+  const { data: categories, isLoading: categoriesLoading } = useQuery({
     queryKey: ['categories'],
     queryFn: async () => {
       const response = await axios.get('/api/v1/categories/');
@@ -58,8 +61,8 @@ export default function Expenses() {
 
   // Create expense mutation
   const createMutation = useMutation({
-    mutationFn: async (newExpense: Omit<Expense, 'id'>) => {
-      const response = await axios.post('/api/v1/expenses/', newExpense);
+    mutationFn: async (data: Omit<Expense, 'id' | 'category_name'>) => {
+      const response = await axios.post('/api/v1/expenses/', data);
       return response.data;
     },
     onSuccess: () => {
@@ -70,8 +73,8 @@ export default function Expenses() {
 
   // Update expense mutation
   const updateMutation = useMutation({
-    mutationFn: async (updatedExpense: Expense) => {
-      const response = await axios.put(`/api/v1/expenses/${updatedExpense.id}`, updatedExpense);
+    mutationFn: async (data: Expense) => {
+      const response = await axios.put(`/api/v1/expenses/${data.id}`, data);
       return response.data;
     },
     onSuccess: () => {
@@ -90,58 +93,24 @@ export default function Expenses() {
     },
   });
 
-  const columns: GridColDef[] = [
-    { field: 'id', headerName: 'ID', width: 90 },
-    { field: 'description', headerName: 'Description', width: 200 },
-    {
-      field: 'amount',
-      headerName: 'Amount',
-      width: 130,
-      valueFormatter: (params) => `$${params.value.toFixed(2)}`,
-    },
-    {
-      field: 'date',
-      headerName: 'Date',
-      width: 130,
-      valueFormatter: (params) => format(new Date(params.value), 'MM/dd/yyyy'),
-    },
-    { field: 'category_name', headerName: 'Category', width: 150 },
-    {
-      field: 'actions',
-      headerName: 'Actions',
-      width: 120,
-      renderCell: (params) => (
-        <Box>
-          <IconButton onClick={() => handleEdit(params.row)}>
-            <EditIcon />
-          </IconButton>
-          <IconButton onClick={() => handleDelete(params.row.id)}>
-            <DeleteIcon />
-          </IconButton>
-        </Box>
-      ),
-    },
-  ];
-
   const handleOpen = () => {
-    setSelectedExpense(null);
-    setFormData({
-      amount: '',
-      description: '',
-      date: format(new Date(), 'yyyy-MM-dd'),
-      category_id: '',
-    });
     setOpen(true);
   };
 
   const handleClose = () => {
     setOpen(false);
     setSelectedExpense(null);
+    setExpenseData({
+      amount: '',
+      description: '',
+      date: format(new Date(), 'yyyy-MM-dd'),
+      category_id: '',
+    });
   };
 
   const handleEdit = (expense: Expense) => {
     setSelectedExpense(expense);
-    setFormData({
+    setExpenseData({
       amount: expense.amount.toString(),
       description: expense.description,
       date: format(new Date(expense.date), 'yyyy-MM-dd'),
@@ -158,32 +127,70 @@ export default function Expenses() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const expenseData = {
-      amount: parseFloat(formData.amount),
-      description: formData.description,
-      date: formData.date,
-      category_id: parseInt(formData.category_id),
+    const data = {
+      amount: parseFloat(expenseData.amount),
+      description: expenseData.description,
+      date: expenseData.date,
+      category_id: parseInt(expenseData.category_id),
     };
 
     if (selectedExpense) {
       await updateMutation.mutateAsync({
-        ...expenseData,
+        ...data,
         id: selectedExpense.id,
+        category_name: selectedExpense.category_name,
       });
     } else {
-      await createMutation.mutateAsync(expenseData);
+      await createMutation.mutateAsync(data);
     }
   };
 
+  const columns: GridColDef[] = [
+    { field: 'id', headerName: 'ID', width: 90 },
+    { field: 'description', headerName: 'Description', width: 200 },
+    {
+      field: 'amount',
+      headerName: 'Amount',
+      width: 130,
+      valueFormatter: ({ value }) => `$${Number(value).toFixed(2)}`,
+    },
+    {
+      field: 'date',
+      headerName: 'Date',
+      width: 130,
+      valueFormatter: ({ value }) => format(new Date(value as string), 'MMM d, yyyy'),
+    },
+    { field: 'category_name', headerName: 'Category', width: 130 },
+    {
+      field: 'actions',
+      headerName: 'Actions',
+      width: 120,
+      renderCell: (params) => (
+        <Box>
+          <Button
+            size="small"
+            onClick={() => handleEdit(params.row)}
+            sx={{ mr: 1 }}
+          >
+            Edit
+          </Button>
+          <Button
+            size="small"
+            color="error"
+            onClick={() => handleDelete(params.row.id)}
+          >
+            Delete
+          </Button>
+        </Box>
+      ),
+    },
+  ];
+
   return (
-    <Box>
+    <Box sx={{ height: '100%', width: '100%' }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
         <Typography variant="h4">Expenses</Typography>
-        <Button
-          variant="contained"
-          startIcon={<AddIcon />}
-          onClick={handleOpen}
-        >
+        <Button variant="contained" color="primary" onClick={handleOpen}>
           Add Expense
         </Button>
       </Box>
@@ -191,8 +198,15 @@ export default function Expenses() {
       <DataGrid
         rows={expenses || []}
         columns={columns}
-        loading={isLoading}
+        initialState={{
+          pagination: {
+            paginationModel: { pageSize: 10 },
+          },
+        }}
+        pageSizeOptions={[10]}
+        disableRowSelectionOnClick
         autoHeight
+        loading={expensesLoading}
       />
 
       <Dialog open={open} onClose={handleClose}>
@@ -201,72 +215,69 @@ export default function Expenses() {
         </DialogTitle>
         <form onSubmit={handleSubmit}>
           <DialogContent>
-            <Grid container spacing={2}>
-              <Grid item xs={12}>
-                <TextField
-                  fullWidth
-                  label="Amount"
-                  type="number"
-                  value={formData.amount}
-                  onChange={(e) =>
-                    setFormData({ ...formData, amount: e.target.value })
-                  }
-                  required
-                />
-              </Grid>
-              <Grid item xs={12}>
-                <TextField
-                  fullWidth
-                  label="Description"
-                  value={formData.description}
-                  onChange={(e) =>
-                    setFormData({ ...formData, description: e.target.value })
-                  }
-                  required
-                />
-              </Grid>
-              <Grid item xs={12}>
-                <TextField
-                  fullWidth
-                  label="Date"
-                  type="date"
-                  value={formData.date}
-                  onChange={(e) =>
-                    setFormData({ ...formData, date: e.target.value })
-                  }
-                  required
-                  InputLabelProps={{ shrink: true }}
-                />
-              </Grid>
-              <Grid item xs={12}>
-                <TextField
-                  fullWidth
-                  select
-                  label="Category"
-                  value={formData.category_id}
-                  onChange={(e) =>
-                    setFormData({ ...formData, category_id: e.target.value })
-                  }
-                  required
-                  SelectProps={{
-                    native: true,
-                  }}
-                >
-                  <option value="">Select a category</option>
-                  {categories?.map((category) => (
-                    <option key={category.id} value={category.id}>
-                      {category.name}
-                    </option>
-                  ))}
-                </TextField>
-              </Grid>
-            </Grid>
+            <TextField
+              autoFocus
+              margin="dense"
+              label="Amount"
+              type="number"
+              fullWidth
+              value={expenseData.amount}
+              onChange={(e) =>
+                setExpenseData({ ...expenseData, amount: e.target.value })
+              }
+              required
+            />
+            <TextField
+              margin="dense"
+              label="Description"
+              type="text"
+              fullWidth
+              value={expenseData.description}
+              onChange={(e) =>
+                setExpenseData({ ...expenseData, description: e.target.value })
+              }
+              required
+            />
+            <TextField
+              margin="dense"
+              label="Date"
+              type="date"
+              fullWidth
+              value={expenseData.date}
+              onChange={(e) =>
+                setExpenseData({ ...expenseData, date: e.target.value })
+              }
+              required
+              InputLabelProps={{ shrink: true }}
+            />
+            <TextField
+              select
+              margin="dense"
+              label="Category"
+              fullWidth
+              value={expenseData.category_id}
+              onChange={(e) =>
+                setExpenseData({ ...expenseData, category_id: e.target.value })
+              }
+              required
+              SelectProps={{ native: true }}
+            >
+              <option value="">Select a category</option>
+              {categories?.map((category: Category) => (
+                <option key={category.id} value={category.id}>
+                  {category.name}
+                </option>
+              ))}
+            </TextField>
           </DialogContent>
           <DialogActions>
             <Button onClick={handleClose}>Cancel</Button>
-            <Button type="submit" variant="contained">
+            <Button type="submit" color="primary">
               {selectedExpense ? 'Update' : 'Add'}
             </Button>
           </DialogActions>
         </form>
- 
+      </Dialog>
+    </Box>
+  );
+} 
